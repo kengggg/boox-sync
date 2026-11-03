@@ -300,7 +300,10 @@ def test_sanitized_titles_skip_identical_second_sync(tmp_path, title):
 @pytest.mark.parametrize("damage", ["note", "manifest", "state", "missing-state"])
 def test_sync_recovers_damaged_files(tmp_path, damage):
     cfg, source = config(tmp_path), Source()
-    sync_once(cfg, source)
+    expected = raw()
+    # ZIP timestamps vary; recovery must preserve the exact source payload.
+    source.pull_notebook = lambda notebook: (expected, None)
+    assert sync_once(cfg, source).status == "ok"
     folder = cfg.archive_dir / "Journal"
     paths = {
         "note": folder / "Journal.note",
@@ -314,7 +317,7 @@ def test_sync_recovers_damaged_files(tmp_path, damage):
         paths[damage].write_text("{")
     result = sync_once(cfg, source)
     assert result.status == "ok"
-    assert (folder / "Journal.note").read_bytes() == raw()
+    assert (folder / "Journal.note").read_bytes() == expected
     assert load_state(cfg.state_dir)["notes"]
     assert not needs_render(folder)
 
