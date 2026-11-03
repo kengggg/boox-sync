@@ -8,7 +8,6 @@ struct SettingsWindow: View {
   @State private var saving = false
   @State private var message: String?
   @State private var tab = "archive"
-  @State private var confirmCopy = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -40,7 +39,7 @@ struct SettingsWindow: View {
               try await model.save(draft)
               draft = model.settings
               message = "Settings saved."
-            } catch { message = error.localizedDescription }
+            } catch { message = model.operationMessage(error) }
             saving = false
           }
         }.buttonStyle(.borderedProminent).disabled(saving || model.busy)
@@ -51,27 +50,12 @@ struct SettingsWindow: View {
     .onAppear {
       NSApp.activate()
       draft = model.settings
-      Task { await model.poll() }
+      Task {
+        await model.refreshNotificationStatus()
+        await model.poll()
+      }
     }
     .onChange(of: model.settings) { _, value in if !saving { draft = value } }
-    .confirmationDialog(
-      "Copy the current archive and switch folders?", isPresented: $confirmCopy,
-      titleVisibility: .visible
-    ) {
-      Button("Choose Destination…") {
-        Task {
-          if let target = await model.chooseFolder() {
-            await model.copyArchive(to: target)
-            draft = model.settings
-            message = model.error ?? "Archive copied and verified. The original remains available."
-          }
-        }
-      }
-    } message: {
-      Text(
-        "Choose an empty folder. Every file is verified before switching. The original archive stays in place as a recovery copy."
-      )
-    }
   }
 
   private var archive: some View {
@@ -109,7 +93,16 @@ struct SettingsWindow: View {
         .font(.caption).foregroundStyle(.secondary)
       }
       Section("Change locations") {
-        Button("Copy Current Archive & Switch…") { confirmCopy = true }.disabled(
+        Button("Copy Current Archive & Switch…") {
+          Task {
+            if let target = await model.chooseFolder(), await model.confirmArchiveCopy(to: target) {
+              await model.copyArchive(to: target)
+              draft = model.settings
+              message =
+                model.error ?? "Archive copied and verified. The original remains available."
+            }
+          }
+        }.disabled(
           model.settings.archiveID.isEmpty || model.busy)
         Text(
           "Use this to transfer your archive to another disk. Choosing a different folder above simply switches to that folder without copying."
@@ -269,6 +262,12 @@ struct SettingsWindow: View {
       Section("Notifications") {
         Toggle("Notify when syncing needs attention", isOn: $draft.notifyErrors)
         Toggle("Notify after successful syncs", isOn: $draft.notifySuccess)
+        Text(model.notificationStatus).font(.caption).foregroundStyle(.secondary)
+        Text("Notification choices take effect after Save Settings.")
+          .font(.caption).foregroundStyle(.secondary)
+        if model.canRequestNotifications {
+          Button("Request Notification Permission") { model.requestNotifications() }
+        }
       }
       Section("Diagnostics") {
         Button("Export Diagnostics…") { Task { await model.exportDiagnostics() } }.disabled(
@@ -279,7 +278,7 @@ struct SettingsWindow: View {
         LabeledContent(
           "Version",
           value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "0.2.0")
+            ?? "Unknown")
       }
     }.formStyle(.grouped).disabled(saving || model.busy)
   }

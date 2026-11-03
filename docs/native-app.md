@@ -6,7 +6,7 @@ BOOX Sync is a SwiftUI application with a Dock window and menu bar item. A bundl
 
 1. Open `BOOX Sync.app`, or copy it from the local DMG into Applications.
 2. Connect the BOOX using a USB data cable. Enable USB debugging on the tablet and accept this Mac there.
-3. Open Settings, choose the tablet under Device, and enter the absolute path of an existing archive folder under Archive. Save Settings. A Choose Folder button is also available; see the local-preview limitation below.
+3. Open Settings, choose the tablet under Device, and use Choose Folder under Archive. Save Settings. You can also enter an absolute folder path.
 4. Choose Sync Now, then review Notebooks and Activity. Connection status and sync results are separate: a connected tablet can still have unavailable notebook content.
 
 No device or archive is selected by default. The app does not automatically import the older CLI configuration. Selecting an existing BOOX Sync archive adopts its manifests without moving notebook files. Keep only one scheduler active when using the app and CLI with the same archive; the archive lock serializes writes, but separate schedulers produce confusing reports and unnecessary work.
@@ -25,11 +25,13 @@ The app only reads tablet data. It does not install software on the tablet or mo
 
 Allowed hours are start-inclusive and end-exclusive. Overnight windows belong to their starting day: Friday 22:00–06:00 includes Saturday before 06:00. The interval starts when the preceding sync finishes; missed intervals do not queue a burst. Reconnecting within allowed hours starts a fresh sync. Sync Now bypasses automatic hours and pause, but still requires the selected tablet and prevents overlapping operations.
 
-Automatic syncing requires the app to be running and the Mac to be awake. Closing the main window leaves the app running. Quit stops it; if an operation is active, Finish and Quit waits for completion. The app checks again after wake and disk mount changes. A fixed schedule time zone remains fixed when traveling; Follow this Mac follows the system zone. Next-run timestamps are displayed in the Mac's time zone.
+Automatic syncing requires the app to be running and the Mac to be awake. Closing the main window leaves the app running. Use Stop in the progress area or menu bar to cancel the current operation. Quit offers Finish and Quit, Keep Running, or Stop and Quit while work is active. Completed notebooks and recovery history remain available; sync again to finish interrupted work. A stopped sync is recorded separately from a failure and does not send a failure notification. The app checks again after wake and disk mount changes. A fixed schedule time zone remains fixed when traveling; Follow this Mac follows the system zone. Next-run timestamps are displayed in the Mac's time zone.
 
 The selected folder has a UUID marker and a macOS bookmark. The engine checks the marker before using the folder; it will not silently recreate a missing disk path or use a replacement folder. Re-select a folder intentionally if its identity changes. Recovery History exports a verified previous `.note` to a new file; it does not replace the current notebook or write to the tablet.
 
-**Local-preview limitation:** the macOS folder picker's Use folder button stayed disabled during automated interaction on the validation Mac, even after selecting a folder. Asynchronous presentation and explicit app activation did not resolve that observation. Direct entry in Folder path was verified through Save Settings, including marker validation and bookmark persistence. Use that path for initial setup. Copy & Switch has passing engine tests, but its complete native picker flow remains unverified. Save-panel export flows also need a manual pass. The exact picker cause has not been established.
+Folder and save dialogs return focus to their originating window. Copy & Switch first chooses the destination, then asks for confirmation with the selected path. Native folder selection, saving its bookmark, Copy & Switch, and diagnostics export were checked with an isolated archive on the development Mac. Recovery export and clean-Mac setup still need the checks in [native validation](macos-native-validation.md).
+
+General shows the actual macOS notification permission separately from the app's notification choices. If macOS blocks notifications, enable BOOX Sync in System Settings → Notifications. Saving unrelated settings does not repeatedly request permission.
 
 Launch at login uses macOS Service Management. Install the app in Applications before enabling it. Registration may require approval in System Settings. This build does not enable login items automatically.
 
@@ -41,7 +43,11 @@ Launch at login uses macOS Service Management. Install the app in Applications b
 - Notebook sources, PDFs, manifests, `.history`, and `.rejected`: in the chosen archive.
 - `BOOX_SYNC_HOME=/absolute/path` overrides application support for isolated development tests.
 
-The UI and helper exchange protocol-versioned JSON lines over stdin/stdout. Progress events update the window; the final result carries a structured outcome. No notebook bytes cross this control channel. The UI owns helper lifetimes and prevents concurrent modifying operations. Connection probes are independent of long syncs. Helpers use argument arrays, not shell command strings.
+The UI and helper exchange protocol-versioned JSON lines over stdin/stdout. Progress events update the window; the final result carries a structured outcome. No notebook bytes cross this control channel. The UI owns helper lifetimes and prevents concurrent modifying operations. Its typed protocol envelope rejects malformed versions/events, incomplete or duplicate results, and oversized messages. Task cancellation stops the owned helper process group, escalating after a two-second termination grace period. Nonblocking pipes prevent stuck input or inherited output handles from holding an operation indefinitely. Connection probes are independent of long syncs. Helpers use argument arrays, not shell command strings.
+
+Helper deadlines use a monotonic clock. Device/health calls allow 20 seconds without an event and 30 seconds overall. Archive metadata operations allow 60 seconds without an event and 120 seconds overall. Sync, rendering, copying, and recovery allow at least 15 minutes without an event (or three times the configured connection timeout, whichever is longer), with a four-hour overall limit. These generous limits accommodate large notebooks; Stop provides immediate user cancellation. Valid progress refreshes the idle deadline but never the overall deadline.
+
+Stopping between a source-file replacement and its manifest commit can leave a detectable incomplete update. The prior verified revision is retained, and a subsequent sync repairs it. Source/PDF/state interruption tests exercise this recovery; cancellation is not an all-notebook rollback.
 
 The application is not App Sandbox enabled. ADB and the helper are bundled inside `Contents/Helpers`; dependency licenses and the original Android Platform Tools notice are under `Contents/Resources`. Diagnostics export versions and status counts, omitting notebook content, titles, device serials, and local paths. No telemetry or automatic upload is included.
 
@@ -59,7 +65,7 @@ uv run python macos/smoke_test.py 'dist/BOOX Sync.app'
 
 Outputs are `dist/BOOX Sync.app` and `dist/BOOX-Sync-VERSION-arm64-local.dmg`. The default uses ad-hoc local signing. `--reuse-engine` reuses the frozen helper only when its source, fonts, and lockfile fingerprint matches. `--no-dmg` builds just the app.
 
-The smoke test verifies signatures, bundled ADB, the JSON protocol, and a synthetic mixed Thai/Latin PDF while the helper's PATH contains only system directories. It never contacts a tablet. Hardware checks must use a separate archive and explicit read-only authorization.
+The smoke test verifies signatures, bundled ADB, the JSON protocol, and a synthetic mixed Thai/Latin PDF while the helper's PATH contains only system directories. It never contacts a tablet. CI also runs `EngineClientTests/testPackagedEngineThroughNativeClient` after packaging, with `BOOX_TEST_ENGINE` pointing to the bundled helper. That verifies health, folder preparation, and PDF generation through the same Swift client used by the app. Hardware checks must use a separate archive and explicit read-only authorization.
 
 For UI validation with an isolated configuration:
 

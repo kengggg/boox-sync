@@ -11,16 +11,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       let alert = NSAlert()
       alert.messageText = "A sync operation is still running"
       alert.informativeText =
-        "Finish the current operation before quitting to keep the latest notebook update complete."
+        "Finish the current operation, or stop it and quit. Completed notebooks and recovery history are retained; sync again to finish interrupted work."
       alert.addButton(withTitle: "Finish and Quit")
       alert.addButton(withTitle: "Keep Running")
-      if alert.runModal() == .alertFirstButtonReturn {
+      alert.addButton(withTitle: "Stop and Quit")
+      let response = alert.runModal()
+      if response == .alertFirstButtonReturn || response == .alertThirdButtonReturn {
         // The background sync can finish while the confirmation is open.
         if !model.busy {
           model.stop()
           return .terminateNow
         }
         model.quitWhenFinished = true
+        if response == .alertThirdButtonReturn { model.cancelOperation() }
         return .terminateLater
       }
       return .terminateCancel
@@ -108,8 +111,13 @@ struct StatusMenu: View {
     Text(model.connectionTitle)
     Text(model.scheduleTitle)
     if model.lastReportStatus == "failed" { Text("Last sync finished with issues") }
+    if model.lastReportStatus == "cancelled" { Text("Last sync was stopped") }
     Divider()
     Button("Sync Now") { Task { await model.sync() } }.disabled(!model.canSync)
+    if model.busy {
+      Button(model.cancelling ? "Stopping…" : "Stop Current Operation") { model.cancelOperation() }
+        .disabled(model.cancelling)
+    }
     Button(model.settings.schedule.automatic ? "Pause Automatic Sync" : "Resume Automatic Sync") {
       var next = model.settings
       next.schedule.automatic.toggle()

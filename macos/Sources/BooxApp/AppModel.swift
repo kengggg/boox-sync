@@ -18,6 +18,8 @@ import UserNotifications
   }
   @Published var outcomes: [[String: Any]] = []
   @Published var busy = false
+  @Published var cancelling = false
+  @Published var notice: String?
   @Published var phase = "Ready"
   @Published var progress: Double = 0
   @Published var error: String?
@@ -28,6 +30,8 @@ import UserNotifications
   @Published var freeBytes: Int64 = 0
   @Published var historyNote: Notebook?
   @Published var loginEnabled = false
+  @Published var notificationStatus = "Checking macOS permission…"
+  @Published var canRequestNotifications = false
   @Published var quitWhenFinished = false
   let dataDirectory: URL
   let engine = EngineClient()
@@ -38,6 +42,8 @@ import UserNotifications
   private var syncOnAttach = false
   private var started = false
   private var observations: [NSObjectProtocol] = []
+  private var activeOperation: Task<[String: Any], Error>?
+  private var activeOperationID: UUID?
 
   init() {
     let override = ProcessInfo.processInfo.environment["BOOX_SYNC_HOME"]
@@ -104,7 +110,7 @@ import UserNotifications
       "command": command, "adb_path": adbURL.path,
       "data_dir": dataDirectory.path, "config": (config ?? settings).engineConfig,
     ]
-    extra.forEach { request[$0] = $1 }
+    for (key, value) in extra { request[key] = value }
     return request
   }
 
@@ -113,6 +119,7 @@ import UserNotifications
     started = true
     resolveBookmark()
     Task {
+      await refreshNotificationStatus()
       await refreshLibrary()
       await poll()
     }
@@ -132,6 +139,12 @@ import UserNotifications
           }
         })
     }
+    observations.append(
+      NotificationCenter.default.addObserver(
+        forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor in await self?.refreshNotificationStatus() }
+      })
     observations.append(
       NotificationCenter.default.addObserver(
         forName: NSNotification.Name.NSSystemTimeZoneDidChange, object: nil, queue: .main
@@ -201,10 +214,17 @@ import UserNotifications
   {
     guard !busy else { throw SettingsError("Another operation is still running.") }
     busy = true
+    cancelling = false
+    notice = nil
+    let operationID = UUID()
+    activeOperationID = operationID
     progress = 0
     phase = command == "sync" ? "Reading notebooks…" : "Working…"
     defer {
       busy = false
+      cancelling = false
+      activeOperation = nil
+      activeOperationID = nil
       phase = "Ready"
       if quitWhenFinished {
         // Allow the caller to persist its final status/settings before exit.
@@ -214,20 +234,41 @@ import UserNotifications
         }
       }
     }
-    return try await engine.call(request(command, extra: extra, using: config)) {
-      [weak self] event in
-      Task { @MainActor in
-        guard let self else { return }
-        let count = event["completed"] as? Int ?? 0
-        let total = event["total"] as? Int ?? 0
-        self.progress = total > 0 ? Double(count) / Double(total) : 0
-        if let title = event["title"] as? String {
-          self.phase = "Syncing \(title)"
-        } else if event["phase"] as? String == "copy" {
-          self.phase = "Verifying archive copy (\(count)/\(total))"
+    let operation = Task { [self] in
+      try await engine.call(request(command, extra: extra, using: config)) {
+        [weak self] event in
+        Task { @MainActor in
+          guard let self, self.activeOperationID == operationID, !self.cancelling else { return }
+          let count = event["completed"] as? Int ?? 0
+          let total = event["total"] as? Int ?? 0
+          self.progress = total > 0 ? Double(count) / Double(total) : 0
+          if let title = event["title"] as? String {
+            self.phase = "Syncing \(title)"
+          } else if event["phase"] as? String == "copy" {
+            self.phase = "Verifying archive copy (\(count)/\(total))"
+          }
         }
       }
     }
+    activeOperation = operation
+    return try await withTaskCancellationHandler {
+      try await operation.value
+    } onCancel: {
+      operation.cancel()
+    }
+  }
+
+  func cancelOperation() {
+    guard busy, !cancelling else { return }
+    cancelling = true
+    phase = "Stopping…"
+    activeOperation?.cancel()
+  }
+
+  func operationMessage(_ error: Error) -> String {
+    error is CancellationError
+      ? "Operation stopped. Completed files and recovery history are retained. You can try again."
+      : error.localizedDescription
   }
 
   func sync() async {
@@ -250,6 +291,10 @@ import UserNotifications
       } else {
         notify("Your notebooks are up to date.", key: UUID().uuidString, isError: false)
       }
+    } catch is CancellationError {
+      lastReportStatus = "cancelled"
+      notice =
+        "Sync stopped. Completed notebooks and recovery history are retained. Sync again to finish."
     } catch {
       self.error = error.localizedDescription
       lastReportStatus = "failed"
@@ -258,6 +303,7 @@ import UserNotifications
     lastFinished = Date()
     nextRun = settings.schedule.nextRun(after: lastFinished)
     saveStatus()
+    if lastReportStatus == "cancelled", !quitWhenFinished { await refreshLibrary() }
   }
 
   func save(_ draft: AppSettings) async throws {
@@ -283,11 +329,17 @@ import UserNotifications
       inventoryCheckedAt = nil
       outcomes = []
     }
+    let askForNotifications =
+      (!settings.configured && next.configured)
+      || (!settings.notifyErrors && next.notifyErrors)
+      || (!settings.notifySuccess && next.notifySuccess)
     settings = next
     error = nil
     await refreshLibrary()
     nextRun = settings.schedule.nextRun(after: lastFinished)
-    if settings.notifyErrors || settings.notifySuccess { requestNotifications() }
+    if askForNotifications && (settings.notifyErrors || settings.notifySuccess) {
+      requestNotifications()
+    }
   }
 
   func persist(_ value: AppSettings) throws {
@@ -310,7 +362,6 @@ import UserNotifications
   }
 
   func chooseFolder() async -> URL? {
-    NSApp.activate()
     let panel = NSOpenPanel()
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
@@ -318,10 +369,20 @@ import UserNotifications
     panel.allowsMultipleSelection = false
     panel.prompt = "Use folder"
     panel.message = "Choose where BOOX Sync will keep notebooks, PDFs, and recovery history."
-    return await panel.begin() == .OK ? panel.url : nil
+    return await present(panel) == .OK ? panel.url : nil
+  }
+
+  func present(_ panel: NSSavePanel) async -> NSApplication.ModalResponse {
+    let parent = NSApp.keyWindow?.sheetParent ?? NSApp.keyWindow
+    NSApp.activate()
+    guard let parent else { return await panel.begin() }
+    let response = await panel.beginSheetModal(for: parent)
+    parent.makeKeyAndOrderFront(nil)
+    return response
   }
 
   func copyArchive(to target: URL) async {
+    error = nil
     do {
       let data = try await run("copy_archive", extra: ["path": target.path])
       var next = settings
@@ -332,7 +393,18 @@ import UserNotifications
       try persist(next)
       settings = next
       await refreshLibrary()
-    } catch { self.error = error.localizedDescription }
+    } catch { self.error = operationMessage(error) }
+  }
+
+  func confirmArchiveCopy(to target: URL) async -> Bool {
+    let alert = NSAlert()
+    alert.messageText = "Copy the archive and switch folders?"
+    alert.informativeText =
+      "Destination: \(target.path)\n\nThe destination must be empty. Every file is verified before switching. The original archive stays in place."
+    alert.addButton(withTitle: "Copy and Switch")
+    alert.addButton(withTitle: "Cancel")
+    guard let parent = NSApp.keyWindow else { return alert.runModal() == .alertFirstButtonReturn }
+    return await alert.beginSheetModal(for: parent) == .alertFirstButtonReturn
   }
 
   func open(_ note: Notebook) async {
@@ -340,7 +412,7 @@ import UserNotifications
       let data = try await run("view", extra: ["notebook": note.id])
       if let path = data["path"] as? String { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
       await refreshLibrary()
-    } catch { self.error = error.localizedDescription }
+    } catch { self.error = operationMessage(error) }
   }
 
   func revealArchive() {
@@ -355,15 +427,14 @@ import UserNotifications
   }
 
   func exportDiagnostics() async {
-    NSApp.activate()
     let panel = NSSavePanel()
     panel.nameFieldStringValue = "BOOX-Sync-Diagnostics.json"
-    guard await panel.begin() == .OK, let url = panel.url else { return }
+    guard await present(panel) == .OK, let url = panel.url else { return }
     do {
       let data = try await run("diagnostics")
       try JSONSerialization.data(withJSONObject: data, options: [.prettyPrinted, .sortedKeys])
         .write(to: url, options: .atomic)
-    } catch { self.error = error.localizedDescription }
+    } catch { self.error = operationMessage(error) }
   }
 
   func setLogin(_ value: Bool) {
@@ -379,7 +450,36 @@ import UserNotifications
   }
 
   func requestNotifications() {
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    Task {
+      do {
+        _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [
+          .alert, .sound,
+        ])
+      } catch {
+        notificationStatus = "Permission could not be requested: \(error.localizedDescription)"
+        return
+      }
+      await refreshNotificationStatus()
+    }
+  }
+
+  func refreshNotificationStatus() async {
+    let value = await UNUserNotificationCenter.current().notificationSettings()
+    canRequestNotifications = value.authorizationStatus == .notDetermined
+    switch value.authorizationStatus {
+    case .notDetermined:
+      notificationStatus = "macOS permission has not been requested yet."
+    case .denied:
+      notificationStatus =
+        "Blocked by macOS. Allow BOOX Sync in System Settings → Notifications to receive alerts."
+    case .authorized, .provisional, .ephemeral:
+      notificationStatus =
+        value.alertSetting == .enabled
+        ? "Notifications are allowed by macOS."
+        : "Notifications are allowed, but banners are off in System Settings → Notifications."
+    @unknown default:
+      notificationStatus = "Review BOOX Sync in System Settings → Notifications."
+    }
   }
 
   func notify(_ message: String, key: String, isError: Bool) {

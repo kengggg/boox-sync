@@ -1,6 +1,6 @@
 # macOS release investigation
 
-Status: investigation and agreed direction, 2026-11-03. Baseline: `v0.2.3` / `1c75735`.
+Status: first implementation and local validation pass, 2026-11-03. Baseline: `v0.2.3` / `1c75735`.
 
 ## Agreed direction
 
@@ -27,15 +27,15 @@ The existing UI does not need to be replaced to provide a native Mac experience.
 
 Install the exact CI-built DMG on a clean Apple Silicon Mac without developer tools. Validate first launch, tablet authorization, folder selection, Save Settings, one successful sync, an unchanged repeat, and opening the resulting PDF. Use a synthetic notebook and separate archive.
 
-The existing packaged smoke test verifies the helper and PDF output, not the complete interactive setup. The folder chooser's disabled confirmation was observed during automated interaction; reproduce it manually before deciding whether it is an app defect, automation limitation, or both. Direct path entry is a verified workaround, not the intended completion criterion for a polished setup flow.
+The existing packaged smoke test verifies the helper and PDF output, not the complete interactive setup. Follow-up native checks completed folder choice and Save Settings. They reproduced focus returning to the main window and an overlapping confirmation/picker in Copy & Switch. Window-attached dialogs and choosing a destination before confirming the copy resolved those observed flows. The earlier disabled-button observation is not enough to identify every picker failure; clean-Mac and minimum-version validation remain required.
 
 Evidence: an installation checklist with app version, macOS version, synthetic steps, outcomes, and sanitized captures. Exercise the minimum supported macOS version and a current release; a deployment target alone is insufficient.
 
 ### 2. Make background work recover predictably
 
-`EngineClient.perform` launches work off the main thread and limits response size, but its pipe read/process wait has no overall deadline. Cancelling its Swift task does not currently cancel the underlying process. Per-ADB timeouts do not cover a stalled helper or malformed response stream.
+The baseline helper client had unbounded pipe reads/process waits and did not propagate Swift task cancellation. The branch now uses nonblocking I/O, operation-specific idle/overall deadlines, a typed envelope, owned-process cancellation, and Stop / Stop and Quit controls. The sync/parser/rendering engine remains bundled Python.
 
-Investigate operation-specific deadlines and cancellation, a typed request/result boundary, and actionable errors when the helper exits or stops responding. Preserve notebook identity, atomic archive commits, five previous good revisions, and read-only tablet access.
+The envelope is typed and validated; command payloads remain dictionaries. Continue toward typed command-specific payloads if that reduces demonstrated boundary errors. Missing results, crashes, malformed streams, and stalled helpers now return actionable errors. Preserve notebook identity, atomic archive commits, five previous good revisions, and read-only tablet access.
 
 Evidence: tests for missing/malformed final results, helper crashes and stalls, cancellation during each archive phase, and quitting during a sync. Verify that previous good files remain usable and the next operation can start. Measure startup, idle activity, and helper launch overhead before changing connection probing or process architecture.
 
@@ -68,4 +68,4 @@ If a specific engine component later justifies a native replacement, compare bot
 - CI verifies the actual macOS app artifact; compatibility claims match observed evidence.
 - The release notes clearly describe supported devices, rendering limits, and the manual update process.
 
-This document changes the release focus only. It does not claim that the remaining native checks, signing rehearsal, or proposed engine improvements have been completed.
+Implementation and evidence are recorded in [native validation](macos-native-validation.md). This pass does not establish clean-Mac installation, the minimum macOS version, signing/notarization, or the remaining lifecycle and hardware checks.

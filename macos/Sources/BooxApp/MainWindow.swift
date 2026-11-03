@@ -43,6 +43,18 @@ struct MainWindow: View {
       }
     } detail: {
       VStack(spacing: 0) {
+        if let notice = model.notice {
+          HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle")
+            Text(notice).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+              model.notice = nil
+            } label: {
+              Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain).help("Dismiss")
+          }.padding(14).background(.quaternary)
+        }
         if let error = model.error {
           HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -66,7 +78,13 @@ struct MainWindow: View {
         }
         if model.busy {
           VStack(alignment: .leading, spacing: 7) {
-            Text(model.phase).font(.caption).lineLimit(1)
+            HStack {
+              Text(model.phase).font(.caption).lineLimit(1)
+              Spacer()
+              Button(model.cancelling ? "Stopping…" : "Stop") { model.cancelOperation() }
+                .disabled(model.cancelling)
+                .help("Stop this operation. Completed notebooks and recovery history are retained.")
+            }
             ProgressView(value: model.progress)
           }.padding().background(.bar)
         }
@@ -229,7 +247,9 @@ struct OverviewView: View {
             value: model.lastFinished?.formatted(date: .abbreviated, time: .shortened) ?? "Not yet",
             detail: model.lastReportStatus == "failed"
               ? "Finished with issues — see Activity"
-              : model.librarySummary)
+              : model.lastReportStatus == "cancelled"
+                ? "Stopped — sync again to finish"
+                : model.librarySummary)
         }
         GroupBox("Schedule") {
           VStack(alignment: .leading, spacing: 10) {
