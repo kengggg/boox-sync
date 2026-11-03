@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+*.egg-info/
+.DS_Store
+.ruff_cache/
+build/
+.venv-app/
+macos/.build/
+macos/.swiftpm/
+.local/
+.tools/
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+*.keychain-db
+# Real notebooks and exported documents belong outside the source tree.
+*.note
+!tests/fixtures/*.note
+*.pdf

@@ -1,0 +1,13 @@
+include README.md LICENSE NOTICE CONTRIBUTING.md CHANGELOG.md uv.lock
+recursive-include docs *.md
+recursive-include scripts *.py *.json
+recursive-include tests *.py *.note
+include macos/Package.swift macos/build_app.py macos/engine_entry.py macos/smoke_test.py
+include macos/Assets/AppIcon.png macos/Assets/MenuBarIcon.png
+recursive-include macos/Sources *.swift
+recursive-include macos/Tests *.swift
+prune .local
+prune .tools
+prune macos/.build
+prune macos/.swiftpm
+global-exclude *.pyc

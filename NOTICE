@@ -1,0 +1,17 @@
+This project reads ONYX BOOX .note exports and renders them on a Mac.
+
+The zip layout, point records, and pen widths are reimplemented from public descriptions of device exports.
+boox-note-parser by Harry Hornbacher is Apache-2.0.
+boox-note-optimizer by nrontsis documents the same modern zip.
+This repository does not copy their source.
+
+Bundled Noto Sans Thai Regular and Bold are from the Noto project:
+https://github.com/notofonts/noto-fonts/tree/main/hinted/ttf/NotoSansThai
+Copyright 2018 The Noto Project Authors (github.com/googlei18n/noto-fonts).
+They are distributed under the SIL Open Font License, Version 1.1.
+The full license is included at src/boox_sync/fonts/OFL.txt and in built packages.
+
+Project code and app artwork are distributed under the root MIT LICENSE.
+Built macOS applications also bundle ADB, CPython, and Python dependencies.
+Their original notices are retained in Contents/Resources/ADB-NOTICE.txt
+and Contents/Resources/Licenses. See docs/third-party.md for the inventory.

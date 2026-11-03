@@ -1,0 +1,81 @@
+name: Checks
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint and source packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.18'
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --frozen --extra dev
+      - run: uv run --frozen ruff check src tests macos/*.py scripts
+      - run: uv run --frozen ruff format --check src tests macos/*.py scripts
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - run: uv build
+      - run: uv run --frozen python scripts/check_distribution.py
+
+  python:
+    name: Python ${{ matrix.python }} / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        python: ['3.11', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.18'
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - run: uv sync --frozen --extra dev
+      - run: uv run --frozen pytest -q
+
+  macos:
+    name: Apple Silicon app and DMG
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.12.18'
+          python-version: '3.12'
+          enable-cache: true
+      - name: Check build host
+        run: |
+          test "$(uname -m)" = arm64
+          swift --version
+          xcodebuild -version
+      - run: uv sync --frozen --extra dev --extra app
+      - run: swift test --package-path macos --scratch-path macos/.build --disable-sandbox
+      - run: uv run --frozen python scripts/fetch_platform_tools.py
+      - run: uv run --frozen python macos/build_app.py --adb .tools/platform-tools/adb
+      - run: uv run --frozen python macos/smoke_test.py 'dist/BOOX Sync.app'
+      - run: hdiutil verify dist/*.dmg
+      - run: uv run --frozen python scripts/release.py prepare
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-arm64-preview
+          path: dist/release-assets/
+          if-no-files-found: error
+          retention-days: 14

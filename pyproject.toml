@@ -1,0 +1,52 @@
+[project]
+name = "boox-sync"
+version = "0.2.3"
+description = "Archive live ONYX BOOX notebooks over USB with revision history and PDF rendering."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{name = "Keng Susumpow"}]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "reportlab>=4.4,<6",
+    "uharfbuzz>=0.50,<1",
+    "rumps>=0.4; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+app = ["pyinstaller>=6.22,<7; sys_platform == 'darwin'"]
+dev = [
+    "pytest>=8",
+    "pypdf>=5",
+    "ruff>=0.14,<1",
+]
+
+[project.scripts]
+boox-sync = "boox_sync.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kengggg/boox-sync"
+Issues = "https://github.com/kengggg/boox-sync/issues"
+Changelog = "https://github.com/kengggg/boox-sync/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+boox_sync = ["fonts/*.ttf", "fonts/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

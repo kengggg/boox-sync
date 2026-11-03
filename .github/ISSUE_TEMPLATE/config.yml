@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage and compatibility
+    url: https://github.com/kengggg/boox-sync/blob/main/docs/compatibility.md
+    about: Check known limitations before opening an issue.

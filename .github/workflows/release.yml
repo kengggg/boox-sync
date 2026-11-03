@@ -1,0 +1,72 @@
+name: Draft release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Validate version tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require tag to match pyproject.toml
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/release.py check-tag "$RELEASE_TAG"
+
+  checks:
+    needs: version
+    uses: ./.github/workflows/checks.yml
+
+  draft:
+    name: Create preview draft
+    needs: [version, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-arm64-preview
+          path: release-assets
+      - name: Verify downloaded assets
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS
+      - name: Draft release (never publish or replace an existing release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            echo 'A release already exists for this tag. Review it manually; no assets were changed.' >&2
+            exit 1
+          fi
+          cat > release-notes.md <<'NOTES'
+          Experimental preview for Apple Silicon Macs (macOS 14 or newer).
+
+          This build uses local ad-hoc signing. It is **not Developer ID signed or notarized**, and macOS may block opening it. Signed distribution is planned; do not disable system-wide security protections to run this preview.
+
+          BOOX firmware compatibility is limited. Read the README and compatibility guide before using it with important notebooks. Keep an independent backup.
+
+          Assets include the DMG, build metadata, and SHA256SUMS. The app bundles ADB, Python, fonts, and their notices. It reads the tablet only; no automatic updater is included.
+
+          Maintainer: review the generated notes and clean-Mac installation results before publishing this draft as a prerelease.
+          NOTES
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --verify-tag --target "$RELEASE_COMMIT" \
+            --draft --prerelease --title "BOOX Sync $RELEASE_TAG — preview" \
+            --notes-file release-notes.md --generate-notes
