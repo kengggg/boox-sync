@@ -71,6 +71,10 @@ jobs:
       - run: uv run --frozen python scripts/fetch_platform_tools.py
       - run: uv run --frozen python macos/build_app.py --adb .tools/platform-tools/adb
       - run: uv run --frozen python macos/smoke_test.py 'dist/BOOX Sync.app'
+      - name: Exercise the packaged helper through the native client
+        env:
+          BOOX_TEST_ENGINE: ${{ github.workspace }}/dist/BOOX Sync.app/Contents/Helpers/BOOXEngine.app/Contents/MacOS/boox-engine
+        run: swift test --package-path macos --scratch-path macos/.build --disable-sandbox --filter EngineClientTests/testPackagedEngineThroughNativeClient
       - run: hdiutil verify dist/*.dmg
       - run: uv run --frozen python scripts/release.py prepare
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -48,23 +48,23 @@ struct RecoveryView: View {
         do {
           let data = try await model.run("history", extra: ["notebook": note.id])
           revisions = data["revisions"] as? [[String: Any]] ?? []
-        } catch { message = error.localizedDescription }
+        } catch { message = model.operationMessage(error) }
         loading = false
       }
   }
 
   private func recover(_ revision: [String: Any]) async {
-    NSApp.activate()
     let panel = NSSavePanel()
     panel.nameFieldStringValue = note.folder + " recovered.note"
     panel.message = "Choose a new filename for the recovered notebook."
-    guard await panel.begin() == .OK, let url = panel.url, let id = revision["id"] as? String else {
+    guard await model.present(panel) == .OK, let url = panel.url, let id = revision["id"] as? String
+    else {
       return
     }
     do {
       _ = try await model.run(
         "restore", extra: ["notebook": note.id, "revision": id, "output": url.path])
       message = "Recovered to \(url.path)"
-    } catch { message = error.localizedDescription }
+    } catch { message = model.operationMessage(error) }
   }
 }
