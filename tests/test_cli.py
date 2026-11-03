@@ -1,7 +1,6 @@
 """CLI tests call the boox-sync entry point."""
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -114,7 +113,10 @@ def test_render_text_command(tmp_path, capsys):
     assert output.is_file()
 
 
-def test_probe_accepts_a_long_device_line_with_spaces(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("path_lookup", [False, True])
+def test_probe_accepts_a_long_device_line_with_spaces(
+    tmp_path, monkeypatch, capsys, path_lookup
+):
     """adb devices -l pads the serial with spaces. That line is still authorized."""
     from boox_sync.adb import AdbKsyncSource, AdbUsbSource
     from boox_sync.sync import RemoteNotebook
@@ -152,6 +154,8 @@ def test_probe_accepts_a_long_device_line_with_spaces(tmp_path, monkeypatch, cap
     )
     fake_adb = tmp_path / "adb"
     fake_adb.touch()
+    fake_adb.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
     config = tmp_path / "config.json"
     config.write_text(
         json.dumps(
@@ -160,7 +164,7 @@ def test_probe_accepts_a_long_device_line_with_spaces(tmp_path, monkeypatch, cap
                 "archive_dir": str(tmp_path / "BOOX"),
                 "state_dir": str(tmp_path / "state"),
                 "remote_roots": ["/storage/emulated/0/note"],
-                "adb_path": str(fake_adb),
+                "adb_path": "adb" if path_lookup else str(fake_adb),
             }
         )
     )
@@ -198,13 +202,12 @@ def test_sync_invalid_serial_exits_1_and_writes_nothing(tmp_path, capsys):
 def test_sync_absent_device_does_not_call_adb(tmp_path, capsys, monkeypatch):
     """A serial that is not on USB exits 1 without invoking adb."""
     calls = []
-    real_run = subprocess.run
 
     def spy(argv, *args, **kwargs):
         calls.append(list(argv))
-        return real_run(argv, *args, **kwargs)
+        raise AssertionError(f"An absent device must not launch a process: {argv}")
 
-    monkeypatch.setattr("boox_sync.usb.subprocess.run", spy)
+    monkeypatch.setattr("boox_sync.cli.usb_present", lambda serial: False)
     monkeypatch.setattr("boox_sync.cli.subprocess.run", spy)
     archive = tmp_path / "BOOX"
     config = tmp_path / "config.json"
@@ -224,11 +227,11 @@ def test_sync_absent_device_does_not_call_adb(tmp_path, capsys, monkeypatch):
     assert code == 1
     assert "adb not invoked" in printed
     assert "Not connected" in printed
-    assert all(Path(argv[0]).name != "adb" for argv in calls)
+    assert calls == []
     assert not archive.exists()
 
 
-def _synced_archive(tmp_path, monkeypatch):
+def _synced_archive(tmp_path, monkeypatch, path_lookup=False):
     """Sync one notebook into a throwaway archive and return the config path."""
     from boox_sync.adb import AdbKsyncSource
     from boox_sync.ksync import build_virtual_page
@@ -273,6 +276,10 @@ def _synced_archive(tmp_path, monkeypatch):
         ]
 
     monkeypatch.setattr(AdbKsyncSource, "list_notebooks", fake_list)
+    fake_adb = tmp_path / "adb"
+    fake_adb.touch()
+    fake_adb.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
     config = tmp_path / "config.json"
     config.write_text(
         json.dumps(
@@ -281,16 +288,17 @@ def _synced_archive(tmp_path, monkeypatch):
                 "archive_dir": str(archive),
                 "state_dir": str(tmp_path / "state"),
                 "remote_roots": ["/storage/emulated/0/note"],
-                "adb_path": "/opt/homebrew/bin/adb",
+                "adb_path": "adb" if path_lookup else str(fake_adb),
             }
         )
     )
     return config, archive
 
 
-def test_notebooks_view_and_export_commands(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("path_lookup", [False, True])
+def test_notebooks_view_and_export_commands(tmp_path, monkeypatch, capsys, path_lookup):
     """sync writes the PDF, notebooks lists it, and view opens that PDF."""
-    config, archive = _synced_archive(tmp_path, monkeypatch)
+    config, archive = _synced_archive(tmp_path, monkeypatch, path_lookup)
     assert main(["sync", "--config", str(config)]) == 0
     folder = archive / "Sample Project"
     assert (folder / "Sample Project.note").is_file()

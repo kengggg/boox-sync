@@ -214,7 +214,7 @@ def sync_attached(config: Config, source_factory=None) -> SyncReport:
         validate_config(config)
         if not usb_present(config.device_serial):
             return SyncReport(status="absent")
-        if not Path(config.adb_path).is_file():
+        if shutil.which(config.adb_path) is None:
             return SyncReport(status="adb_missing")
         if not _adb_authorized(config.adb_path, config.device_serial):
             return SyncReport(status="unauthorized")
@@ -317,7 +317,7 @@ def probe_command(config: Config) -> int:
         print("Not connected")
         print("adb not invoked")
         return 1
-    if not Path(config.adb_path).is_file():
+    if shutil.which(config.adb_path) is None:
         print("Android platform tools not found")
         return 1
     devices = subprocess.run(
