@@ -20,7 +20,7 @@ A controlled comparison with four pages from tablet-exported PDFs found matching
 - Missing page order uses a creation-time fallback; arbitrary manual reordering cannot always be reconstructed. Missing dimensions use a marked fallback.
 - Thai/Latin typed text uses Noto Sans Thai and HarfBuzz. Unsupported scripts fail explicitly. Handwriting remains ink; OCR is not included.
 - Charcoal, calligraphy, some geometry, inferred image placement, and rich text styles can be approximate. Arbitrary fonts, template artwork, and editing back to BOOX are not implemented.
-- Folder selection/save, Copy & Switch with synthetic files, diagnostics export, and blocked-notification status passed native checks on the development Mac. Recovery export and clean-Mac dialog behavior remain unverified; see [native validation](macos-native-validation.md).
+- Folder selection/save, Copy & Switch with synthetic files, diagnostics/recovery export, and blocked-notification status passed native checks on the development Mac. Clean-Mac dialog behavior remains unverified; see [native validation](macos-native-validation.md).
 - Stop, retry after stopping, and Stop and Quit passed with the real bundled engine and a synthetic stalled ADB transport. Menu-bar interaction, login registration, notification delivery when allowed, wake/reconnect, and installation on another Mac still need broader end-to-end validation.
 - Preview builds are ad-hoc signed, not Developer ID signed or notarized. No automatic updater is implemented.
 

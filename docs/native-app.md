@@ -29,7 +29,7 @@ Automatic syncing requires the app to be running and the Mac to be awake. Closin
 
 The selected folder has a UUID marker and a macOS bookmark. The engine checks the marker before using the folder; it will not silently recreate a missing disk path or use a replacement folder. Re-select a folder intentionally if its identity changes. Recovery History exports a verified previous `.note` to a new file; it does not replace the current notebook or write to the tablet.
 
-Folder and save dialogs return focus to their originating window. Copy & Switch first chooses the destination, then asks for confirmation with the selected path. Native folder selection, saving its bookmark, Copy & Switch, and diagnostics export were checked with an isolated archive on the development Mac. Recovery export and clean-Mac setup still need the checks in [native validation](macos-native-validation.md).
+Folder and save dialogs return focus to their originating window. Copy & Switch first chooses the destination, then asks for confirmation with the selected path. Native folder selection, saving its bookmark, Copy & Switch, and diagnostics export were checked with an isolated archive on the development Mac. Recovery export also passed with two synthetic notebook revisions. Clean-Mac setup and broader lifecycle/accessibility checks remain in [native validation](macos-native-validation.md).
 
 General shows the actual macOS notification permission separately from the app's notification choices. If macOS blocks notifications, enable BOOX Sync in System Settings → Notifications. Saving unrelated settings does not repeatedly request permission.
 

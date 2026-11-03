@@ -11,6 +11,7 @@ Local implementation pass on `investigate/macos-native`, 2026-11-03. The baselin
 | Packaged app | Ad-hoc signature verification, bundled ADB version, synthetic mixed Thai/Latin PDF, and DMG checksum verification passed. Swift calls the packaged helper for health, folder preparation, and PDF rendering. | Developer ID/notarization and Gatekeeper on a clean Mac are untested. |
 | Folder selection | Choose Folder → native picker → Use folder → Save Settings passed. The saved UUID matched the archive marker and a bookmark was persisted. Settings remained visible after the dialog fix. | Isolated local folder on the development Mac. |
 | Copy & Switch | Destination picker → confirmation showing the path → copy completed. Destination preference/identity persisted; the synthetic file matched the original, which remained present. | Small synthetic archive, no removable disk. |
+| Recovery export | Native Recovery History → Recover → save dialog completed. Exported bytes exactly matched the earlier synthetic revision; the current notebook still matched the newer revision. | The row action required a coordinate click in automation; a full keyboard/accessibility pass remains open. |
 | Diagnostics export | Native save dialog completed; exported JSON contained only the expected version/status fields. | Synthetic archive without tablet content. |
 | Notifications | General displayed the actual denied macOS status and directions to System Settings. No redundant permission button was shown when denied. | Permission was not changed; allowed delivery and first authorization remain untested. |
 | Stop / retry / quit | A separate copy of the app used the real frozen engine with only bundled ADB replaced by a synthetic transport. The transport listed a fake tablet and stalled reads. Stop cleared busy state, showed a neutral stopped notice, and re-enabled Sync Now. Another sync started. Stop and Quit exited the app/helper and persisted `cancelled` status. | This validates the native control/process path; archive interruption safety is covered separately above. No real notebook was read for this test. |
@@ -33,6 +34,8 @@ BOOX_TEST_ENGINE="$PWD/dist/BOOX Sync.app/Contents/Helpers/BOOXEngine.app/Conten
   --filter EngineClientTests/testPackagedEngineThroughNativeClient
 hdiutil verify dist/*.dmg
 ```
+
+GitHub [CI run 41613802874](https://github.com/kengggg/boox-sync/actions/runs/41613802874) passed all eight jobs for implementation commit `8c92417`, including app/DMG packaging and the native-client integration test.
 
 The full local suites passed: 195 Python tests and 26 Swift tests with the packaged-helper environment supplied. Without that environment, the packaged-helper Swift test is explicitly skipped and CI runs it after building the app. CI also checks lint, formatting, workflow syntax, source packages, and its Python/OS matrix.
 
